@@ -1,0 +1,196 @@
+<!-- component -->
+<link href="/tailwind.css" rel="stylesheet">
+<link rel="stylesheet" href="/home.css">
+<!-- to import map -->
+<script src='https://api.mapbox.com/mapbox-gl-js/v2.4.1/mapbox-gl.js'></script>
+<link href='https://api.mapbox.com/mapbox-gl-js/v2.4.1/mapbox-gl.css' rel='stylesheet' />
+<!-- to draw -->
+<script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+<script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.2.2/mapbox-gl-draw.js"></script>
+<link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.2.2/mapbox-gl-draw.css"
+  type="text/css">
+<!-- adding search bar -->
+<script src='https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v4.7.0/mapbox-gl-geocoder.min.js'></script>
+<link rel='stylesheet'
+  href='https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v4.7.0/mapbox-gl-geocoder.css' type='text/css' />
+<!-- to include char js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@2.8.0"></script>
+<link rel="stylesheet" type="text/css" href="https://cloud.webtype.com/css/671dd55f-2f78-41c1-8f60-f2f3cd70cf4c.css"
+  media="all">
+
+<style type="text/css">
+
+
+
+</style>
+
+<!-- styles for the area calculation -->
+<!-- <style>
+.calculation-box {
+    height: 75px;
+    width: 150px;
+    position: absolute;
+    bottom: 40px;
+    left: 10px;
+    background-color: rgba(255, 255, 255, 0.9);
+    padding: 15px;
+    text-align: center;
+}     
+p{
+    font-family: 'Open Sans';
+    margin: 0;
+    font-size: 13px;
+}
+</style> -->
+
+
+<body>
+
+  <div class="flex flex-wrap md:flex-nowrap">
+    <div id='map' style='width: 750px; height: 550px;'></div>
+    
+  </div>
+  <canvas id="chart-container"></canvas>
+
+  <script>
+    mapboxgl.accessToken = 'pk.eyJ1IjoiZ2RldmFjYyIsImEiOiJja3N3cHp2ejAyMXZpMndvZHZwM2gxb25oIn0.xZgIbExrP9V7sJPsnXShjw';
+    const map = new mapboxgl.Map({
+      container: 'map', // container ID
+      style: 'mapbox://styles/mapbox/satellite-streets-v11', // style URL
+      center: [-74.5, 40], // starting position [lng, lat]
+      zoom: 9 // starting zoom
+    });
+    const draw = new MapboxDraw({
+      displayControlsDefault: false,
+      // Select which mapbox-gl-draw control buttons to add to the map.
+      controls: {
+        polygon: true,
+        trash: true
+      },
+      // Set mapbox-gl-draw to draw by default.
+      // The user does not have to click the polygon control button first.
+      defaultMode: 'draw_polygon'
+    });
+    map.addControl(draw);
+    map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+
+    const geocoder = new MapboxGeocoder({
+      // Initialize the geocoder
+      accessToken: mapboxgl.accessToken, // Set the access token
+      mapboxgl: mapboxgl, // Set the mapbox-gl instance
+      marker: false // Do not use the default marker style
+    });
+
+    // Add the geocoder to the map
+    map.addControl(geocoder, 'top-left');
+
+
+    map.on('draw.create', updateArea);
+    map.on('draw.delete', updateArea);
+    map.on('draw.update', updateArea);
+
+    // delete prev drawn polygon 1 at a time
+    map.on('draw.modechange', (e) => {
+      const data = draw.getAll();
+      if (draw.getMode() == 'draw_polygon') {
+        var pids = []
+        // ID of the added template empty feature
+        const lid = data.features[data.features.length - 1].id
+        data.features.forEach((f) => {
+          if (f.geometry.type === 'Polygon' && f.id !== lid) {
+            pids.push(f.id)
+          }
+        })
+        draw.delete(pids)
+      }
+    });
+
+    // calculate area
+
+    function updateArea(e) {
+      const data = draw.getAll();
+      console.log(data.features[0].geometry.coordinates[0]);
+      const answer = document.getElementById('calculated-area');
+      if (data.features.length > 0) {
+        const area = turf.area(data);
+        // Restrict the area to 2 decimal points.
+        let rounded_area = Math.round(area * 100) / 1000000;
+        rounded_area = Math.round(rounded_area * 100) / 100;
+        answer.innerHTML = `<strong>${rounded_area}</strong>Ha`;
+      } else {
+        answer.innerHTML = '';
+        if (e.type !== 'draw.delete')
+          alert('Click the map to draw a polygon.');
+      }
+    }
+
+    function clearpolygonarea() {
+      try {
+        const data = draw.getAll();
+        draw.delete(data.features[0].id)
+        console.log(data);
+      } catch (error) {
+        alert('please select a polygon')
+      }
+    }
+
+    async function createpolygon() {
+      try {
+        const data = draw.getAll();
+        let coordinates = data.features[0].geometry.coordinates[0];
+        const polygonname = document.getElementById('polygonname').value || 'Sample Polygon';
+        const postdata = {
+          "name": polygonname,
+          "geo_json": {
+            "type": "Feature",
+            "properties": {
+
+            },
+            "geometry": {
+              "type": "Polygon",
+              "coordinates": [
+                coordinates
+              ]
+            }
+          }
+        }
+        // console.log(postdata)
+        let res = await fetch('http://api.agromonitoring.com/agro/1.0/polygons?appid=7aab8b8f813c852f1282ac4b242b5db2', {
+          method: "POST",
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(postdata)
+        });
+        const resdata = await res.json();
+        console.log(res.body)
+        console.log(resdata);
+        const senddata = await fetch('/polygondata', {
+          method: "POST",
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(resdata)
+        });
+        if (res.statusText == 'Created') {
+          alert('created')
+        } else {
+          alert(res.statusText);
+        }
+      } catch (error) {
+        alert('error occoured');
+      }
+    }
+
+
+    const curDate = document.getElementById("date")
+  </script>
+
+  <!-- charjs -->
+
+  <script type="text/javascript">
+
+
+  </script>
